@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Mirrors the manifest of the vendored official Telegram Login SDK
+      (org.telegram:login-sdk — previously merged in from its AAR):
+      INTERNET for the /crossapp + /token calls, and the `tg` scheme query so
+      package-visibility filtering (Android 11+) lets us resolve the Telegram app.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="tg" />
+        </intent>
+    </queries>
+
+</manifest>

@@ -1,0 +1,27 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.telegramauth'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.telegramauth"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    consumerProguardFiles 'consumer-rules.pro'
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+// Dependencies of the vendored official Telegram Login SDK sources
+// (android/src/main/java/org/telegram/login — see scripts/sync-upstream.mjs).
+dependencies {
+  implementation 'androidx.core:core-ktx:1.13.1'
+  implementation 'androidx.browser:browser:1.8.0'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+}

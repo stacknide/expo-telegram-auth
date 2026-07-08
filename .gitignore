@@ -1,0 +1,23 @@
+node_modules/
+build/
+plugin/build/
+
+# macOS
+.DS_Store
+
+# XDE
+.expo/
+
+# Xcode
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.xcuserstate
+project.xcworkspace
+
+# Android/IntelliJ
+*.iml
+.gradle/
+local.properties
+.idea/
