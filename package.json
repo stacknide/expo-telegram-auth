@@ -12,7 +12,7 @@
 		"expo-module": "expo-module",
 		"lint": "expo-module lint",
 		"postinstall": "lefthook install || true",
-		"prepare": "expo-module build && expo-module build plugin",
+		"prepare": "cross-env EXPO_NONINTERACTIVE=1 expo-module build && cross-env EXPO_NONINTERACTIVE=1 expo-module build plugin",
 		"prepublishOnly": "expo-module prepublishOnly",
 		"sync-upstream": "node scripts/sync-upstream.mjs"
 	},
@@ -29,7 +29,7 @@
 	"bugs": {
 		"url": "https://github.com/stacknide/expo-telegram-auth/issues"
 	},
-	"author": "stacknide",
+	"author": "ashuvssut",
 	"license": "MIT",
 	"homepage": "https://github.com/stacknide/expo-telegram-auth#readme",
 	"files": [
@@ -60,6 +60,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.5.2",
 		"@types/node": "^24.0.0",
+		"cross-env": "^10.1.0",
 		"expo": "^57.0.2",
 		"expo-module-scripts": "^56.0.3",
 		"lefthook": "^2.1.9",
