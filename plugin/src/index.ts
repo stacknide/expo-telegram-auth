@@ -3,7 +3,6 @@ import type { ExpoTelegramAuthPluginProps } from './types'
 import { withTelegramAuthAndroid } from './withTelegramAuthAndroid'
 import { withTelegramAuthIos } from './withTelegramAuthIos'
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg: { name: string; version: string } = require('../../package.json')
 
 export type { ExpoTelegramAuthPluginProps } from './types'

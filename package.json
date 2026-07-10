@@ -5,11 +5,13 @@
 	"main": "build/index.js",
 	"types": "build/index.d.ts",
 	"scripts": {
+		"biome": "biome check --write .",
 		"build": "expo-module build",
 		"build:plugin": "expo-module build plugin",
 		"clean": "expo-module clean",
 		"expo-module": "expo-module",
 		"lint": "expo-module lint",
+		"postinstall": "lefthook install || true",
 		"prepare": "expo-module build && expo-module build plugin",
 		"prepublishOnly": "expo-module prepublishOnly",
 		"sync-upstream": "node scripts/sync-upstream.mjs"
@@ -56,9 +58,11 @@
 		}
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.5.2",
 		"@types/node": "^24.0.0",
 		"expo": "^57.0.2",
 		"expo-module-scripts": "^56.0.3",
+		"lefthook": "^2.1.9",
 		"typescript": "~6.0.3"
 	},
 	"peerDependencies": {

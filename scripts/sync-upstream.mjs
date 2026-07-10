@@ -78,11 +78,7 @@ const fetchUpstreamFile = async (pin, filePath, attempt = 1) => {
 const vendorFile = async (pin, upstreamPath, destination) => {
 	const body = await fetchUpstreamFile(pin, upstreamPath)
 	await mkdir(path.dirname(destination), { recursive: true })
-	await writeFile(
-		destination,
-		provenanceHeader({ ...pin, filePath: upstreamPath }) + body,
-		'utf8'
-	)
+	await writeFile(destination, provenanceHeader({ ...pin, filePath: upstreamPath }) + body, 'utf8')
 	console.log(`✔ ${path.relative(packageRoot, destination)}  (${pin.commit.slice(0, 7)})`)
 }
 
@@ -94,6 +90,10 @@ for (const file of ANDROID_SOURCES) {
 		path.join(packageRoot, 'android/src/main/java/org/telegram/login', file)
 	)
 }
-await vendorFile(pins.ios, IOS_UPSTREAM_FILE, path.join(packageRoot, 'ios/vendor/TelegramLogin.swift'))
+await vendorFile(
+	pins.ios,
+	IOS_UPSTREAM_FILE,
+	path.join(packageRoot, 'ios/vendor/TelegramLogin.swift')
+)
 
 console.log('\nAll upstream sources synced. Review the diff before committing.')

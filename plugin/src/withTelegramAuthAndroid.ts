@@ -23,7 +23,8 @@ export const withTelegramAuthAndroid: ConfigPlugin<ExpoTelegramAuthPluginProps> 
 	const intentFilters = config.android.intentFilters ?? []
 
 	const alreadyDeclared = intentFilters.some((filter) => {
-		const dataEntries = filter.data == null ? [] : Array.isArray(filter.data) ? filter.data : [filter.data]
+		const dataEntries =
+			filter.data == null ? [] : Array.isArray(filter.data) ? filter.data : [filter.data]
 		return dataEntries.some((data) => data.host === url.host && data.scheme === 'https')
 	})
 	if (alreadyDeclared) return config
@@ -36,9 +37,9 @@ export const withTelegramAuthAndroid: ConfigPlugin<ExpoTelegramAuthPluginProps> 
 			category: ['BROWSABLE', 'DEFAULT'],
 			data: [
 				{
-					scheme: 'https',
 					host: url.host,
 					pathPrefix: url.pathname || '/',
+					scheme: 'https',
 				},
 			],
 		},

@@ -28,10 +28,7 @@ export const withTelegramAuthIos: ConfigPlugin<ExpoTelegramAuthPluginProps> = (c
 				urlType.CFBundleURLSchemes.includes(fallbackScheme)
 			)
 			if (!alreadyRegistered) {
-				cfg.modResults.CFBundleURLTypes = [
-					...urlTypes,
-					{ CFBundleURLSchemes: [fallbackScheme] },
-				]
+				cfg.modResults.CFBundleURLTypes = [...urlTypes, { CFBundleURLSchemes: [fallbackScheme] }]
 			}
 		}
 		return cfg

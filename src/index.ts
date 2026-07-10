@@ -50,9 +50,9 @@ export async function login(options: TelegramLoginOptions): Promise<TelegramLogi
 	}
 	const loginPromise = ExpoTelegramAuthModule.login({
 		clientId: options.clientId,
+		fallbackScheme: options.fallbackScheme,
 		redirectUri: options.redirectUri,
 		scopes: normalizeScopes(options.scopes),
-		fallbackScheme: options.fallbackScheme,
 	})
 	watchForDismissal(ExpoTelegramAuthModule, loginPromise)
 	return loginPromise
@@ -65,7 +65,9 @@ export async function login(options: TelegramLoginOptions): Promise<TelegramLogi
 export function getTelegramAuthErrorCode(error: unknown): TelegramAuthErrorCode | null {
 	if (typeof error !== 'object' || error == null) return null
 	const code = (error as { code?: unknown }).code
-	return typeof code === 'string' && code.startsWith('ERR_') ? (code as TelegramAuthErrorCode) : null
+	return typeof code === 'string' && code.startsWith('ERR_')
+		? (code as TelegramAuthErrorCode)
+		: null
 }
 
 class TelegramAuthUnsupportedError extends Error {

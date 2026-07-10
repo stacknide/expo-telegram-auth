@@ -1,0 +1,96 @@
+{
+	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "on",
+				"useSortedAttributes": "on",
+				"useSortedKeys": "on",
+				"useSortedProperties": "on"
+			}
+		},
+		"enabled": true,
+		"includes": ["**", "!**/build/**", "!**/plugin/build/**"]
+	},
+	"files": {
+		"ignoreUnknown": false
+	},
+	"formatter": {
+		"attributePosition": "auto",
+		"bracketSameLine": false,
+		"bracketSpacing": true,
+		"enabled": true,
+		"expand": "auto",
+		"formatWithErrors": false,
+		"includes": [
+			"**",
+			"!**/*",
+			"**/*.js",
+			"**/*.mjs",
+			"**/*.ts",
+			"**/*.mts",
+			"**/*.json",
+			"**/*.jsonc",
+			"**/*/",
+			"!**/android",
+			"!**/ios",
+			"!**/build/**",
+			"!**/plugin/build/**"
+		],
+		"indentStyle": "tab",
+		"indentWidth": 2,
+		"lineEnding": "lf",
+		"lineWidth": 100,
+		"useEditorconfig": true
+	},
+	"javascript": {
+		"formatter": {
+			"arrowParentheses": "always",
+			"quoteProperties": "asNeeded",
+			"quoteStyle": "single",
+			"semicolons": "asNeeded",
+			"trailingCommas": "es5"
+		}
+	},
+	"json": {
+		"parser": {
+			"allowComments": true
+		}
+	},
+	"linter": {
+		"enabled": true,
+		"includes": ["**", "!**/build/**", "!**/plugin/build/**"],
+		"rules": {
+			"correctness": {
+				"noUnusedImports": {
+					"fix": "safe",
+					"level": "error"
+				},
+				"noUnusedVariables": {
+					"fix": "none",
+					"level": "error"
+				}
+			},
+			"preset": "recommended"
+		}
+	},
+	"overrides": [
+		{
+			// Instead of letting Biome format/sort package.json, run npm/yarn install to format it
+			"assist": {
+				"actions": {
+					"source": {
+						"useSortedKeys": "off"
+					}
+				}
+			},
+			"formatter": { "enabled": false },
+			"includes": ["**/package.json"]
+		}
+	],
+	"vcs": {
+		"clientKind": "git",
+		"enabled": true,
+		"useIgnoreFile": true
+	}
+}
