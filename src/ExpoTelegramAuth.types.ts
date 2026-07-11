@@ -14,8 +14,11 @@ export type TelegramLoginOptions = {
 	scopes?: string[]
 	/**
 	 * Custom URL scheme registered as the fallback redirect in @BotFather
-	 * (e.g. `myapp`). iOS only: used by the SDK's ASWebAuthenticationSession
-	 * fallback on iOS < 17.4, and accepted by the return-hop filter.
+	 * (e.g. `myapp`). Applies to **both platforms**:
+	 * - iOS: used by the SDK's ASWebAuthenticationSession fallback on iOS < 17.4.
+	 * - Android: when the redirect URI is a custom scheme (not an App Link), the
+	 *   coordinator matches the return hop by this scheme instead of the redirect
+	 *   host (see `TelegramAuthCoordinator.handleReturnUrl`).
 	 */
 	fallbackScheme?: string
 }
