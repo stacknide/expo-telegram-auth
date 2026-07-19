@@ -61,7 +61,7 @@
 		"@biomejs/biome": "2.5.3",
 		"@types/node": "^24.0.0",
 		"cross-env": "^10.1.0",
-		"expo": "^57.0.4",
+		"expo": "^57.0.7",
 		"expo-module-scripts": "^56.0.3",
 		"lefthook": "^2.1.10",
 		"typescript": "~6.0.3"
