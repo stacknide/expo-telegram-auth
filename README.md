@@ -80,13 +80,26 @@ if (TelegramAuth.isNativeLoginSupported() && (await TelegramAuth.isTelegramAppIn
     // Send idToken to YOUR backend and verify it there (see "Verifying the id_token").
   } catch (error) {
     const code = TelegramAuth.getTelegramAuthErrorCode(error)
-    if (code === 'ERR_CANCELLED' || code === 'ERR_DISMISSED') return // user backed out — no-op
+    if (code === 'ERR_CANCELLED') return // user denied in Telegram — they already know
+    if (code === 'ERR_DISMISSED') return // came back undecided — see the caveat below, it can be wrong
     throw error
   }
 } else {
   // fall back to your existing browser-based flow
 }
 ```
+
+**Also claim stashed logins on mount** — one call, and it is what makes the flow survive
+Android reclaiming your app while the user is in Telegram:
+
+```ts
+// Same handling as a resolved login(): the idToken is one the user really approved.
+const stashed = await TelegramAuth.claimStashedLogin()
+if (stashed) await sendToYourBackend(stashed.idToken)
+```
+
+Skipping it means silently discarding logins your users completed. See
+[Logins that outlive your JS runtime](#logins-that-outlive-your-js-runtime).
 
 **Android gating tip**: gate on `isTelegramAppInstalled()`. Without the Telegram app the
 Android SDK falls back to a Custom-Tab web login whose return hop reintroduces the exact
@@ -100,13 +113,13 @@ On iOS the built-in `ASWebAuthenticationSession` fallback is fine to use.
 
 | Code | Meaning |
 | --- | --- |
-| `ERR_CANCELLED` | User denied in Telegram / cancelled the iOS auth sheet. Silent no-op. |
-| `ERR_DISMISSED` | User came back from Telegram without deciding — no return hop arrived. Silent no-op. |
+| `ERR_CANCELLED` | User denied in Telegram / cancelled the iOS auth sheet. Their own decision — silent no-op. |
+| `ERR_DISMISSED` | **Inferred, not reported by Telegram**: the app regained focus and no return hop arrived within the grace period. Also fires on a slow or unmatched return hop after a real approval, so do not treat it as certainly-a-cancel — prefer neutral copy over silence. |
 | `ERR_NO_AUTH_CODE` | Return URL carried no authorization code. |
 | `ERR_SERVER` | Telegram's token endpoint returned a non-200. |
 | `ERR_REQUEST_FAILED` | Network/SDK failure (message has the native detail). |
 | `ERR_NOT_CONFIGURED` | iOS SDK not configured (shouldn't happen — config is per-call). |
-| `ERR_CONCURRENT` | A login is already in flight. |
+| `ERR_CONCURRENT` | A login is already in flight. Disable your button while one is pending; if you get this anyway, call `cancelPendingLogin()` and retry once (see below). |
 | `ERR_NOT_SUPPORTED` | Native module unavailable (web / excluded platform). |
 
 ## expo-router apps: rewrite the return URL
@@ -150,15 +163,52 @@ See [Telegram's docs on validating ID tokens](https://core.telegram.org/bots/tel
   Telegram undecided there is no callback. The module watches for the app returning to
   the foreground without a return URL and rejects with `ERR_DISMISSED` after a short
   grace period.
-- **Process death**: if Android kills your app while the user is in Telegram, the PKCE
-  verifier dies with it — the (cold-start) return delivery is ignored safely and the
-  user simply retries. Guarded: it cannot crash the app.
+- **Process death**: if Android kills your app *process* while the user is in Telegram, the
+  PKCE verifier dies with it — the (cold-start) return delivery is ignored safely and the
+  user simply retries. Guarded: it cannot crash the app. The *other* case — process alive,
+  JS runtime gone — is the one below, and it is far more common.
 - **`openid` scope** is always requested (the two SDKs disagree on adding it; the module
   normalizes so id_token claims are identical across platforms).
 - **Free Apple developer teams** cannot use Associated Domains — without a paid team the
   iOS app-installed branch cannot return to your app. The `fallbackScheme` only covers
   the SDK's web-session branch (< iOS 17.4). Plan on a paid team for production iOS.
 - Android `minSdk 23`, iOS 15+ (the pod targets Expo's floor).
+
+## Logins that outlive your JS runtime
+
+The native coordinator is a process-scoped singleton; the promise `login()` hands you belongs
+to one JS runtime. Android destroys the Activity and React host of a backgrounded app whenever
+it wants the memory — and a native login **always** backgrounds you, because it launches
+Telegram. So the runtime that started a login is routinely gone before the user finishes,
+while the process (and this module) lives on.
+
+Such a login is **orphaned**: nothing can receive its result. The module handles it so you
+don't have to, but you must make the one call that completes the story:
+
+| Situation | What the module does |
+| --- | --- |
+| Orphaned login **succeeds** (user approved) | Stashes the `idToken`. Claim it with `claimStashedLogin()` — **this is the call you have to make.** Without it the approval is silently thrown away and your user sees a button that did nothing. |
+| Orphaned login **fails** (backed out, Telegram refused) | Dropped. Resurfacing it on a later launch would be noise. |
+| A new `login()` arrives with an orphan still pending | The orphan is evicted and the new login proceeds. It is not competing for anything. |
+
+The stash is delivered **at most once** and expires after 10 minutes, because an `idToken`
+is short-lived and a stale one can only produce a puzzling exchange failure.
+
+`claimStashedLogin()` resolves `null` on builds that predate the stash, so it is safe to call
+unconditionally.
+
+### Repro
+
+`ERR_CONCURRENT` and the silent-discard are the same bug with different endings, and both
+reproduce deterministically:
+
+1. Android Developer Options → enable **"Don't keep activities"**.
+2. Tap your connect button; the Telegram app opens.
+3. **Approve** → orphaned success. Without `claimStashedLogin()`, nothing happens on return.
+4. **Back out instead** → orphaned failure. On versions before the eviction above, every
+   later attempt rejects with `ERR_CONCURRENT` for the life of the process.
+
+If you support only `login()` and never claim, step 3 is a real user losing a real login.
 
 ## Vendored upstream SDKs
 

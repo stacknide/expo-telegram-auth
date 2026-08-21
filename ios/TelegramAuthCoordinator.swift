@@ -8,6 +8,18 @@ import ExpoModulesCore
  (app-delegate callbacks), and the SDK's MainActor completion — all shared state is
  guarded by a lock, and every vendored-SDK call hops to the MainActor (the SDK API
  is `@MainActor`).
+
+ ## Orphaned logins
+
+ This singleton outlives any one JS runtime, while the promise it holds belongs to exactly one. A
+ pending login whose owning module has detached is **orphaned** — its promise can never be settled
+ because nothing is listening. Such a login must not block the next attempt, and if it *succeeds* its
+ `idToken` is stashed for the next runtime to `claimStashedResult()` rather than discarded.
+
+ This matters far less on iOS than on Android, where the OS destroys the Activity and React host of a
+ backgrounded app as a matter of routine and a login is *always* backgrounded (it launches Telegram).
+ It is kept symmetric deliberately: the JS layer is shared, so a platform that answered
+ `claimStashedResult` differently would be a trap rather than an optimisation.
  */
 final class TelegramAuthCoordinator {
   static let shared = TelegramAuthCoordinator()
@@ -22,11 +34,32 @@ final class TelegramAuthCoordinator {
   static let errNotConfigured = "ERR_NOT_CONFIGURED"
   static let errConcurrent = "ERR_CONCURRENT"
 
+  /**
+   How long a stashed result stays claimable. The `idToken` is short-lived and the backend validates
+   it, so an ancient stash could only produce a confusing exchange failure on app open.
+   */
+  private static let maxStashAge: TimeInterval = 10 * 60
+
   private let lock = NSLock()
   private weak var module: ExpoTelegramAuthModule?
   private var pendingPromise: Promise?
   private var expectedHost: String?
   private var fallbackScheme: String?
+  /// The module whose JS runtime owns `pendingPromise`; `nil` once that runtime is gone.
+  private weak var pendingOwner: ExpoTelegramAuthModule?
+  /**
+   Whether an owner was ever recorded for the pending login, so a deallocated `pendingOwner` reads as
+   orphaned while "never had one" does not. Treating an owner-less login as orphaned from birth would
+   stash a result the caller is still awaiting and hang its promise forever.
+   */
+  private var hasPendingOwner = false
+  private var stashedIdToken: String?
+  private var stashedAt: Date?
+
+  /// No live JS runtime is waiting on `pendingPromise`; settling it would be a no-op.
+  private var isPendingOrphaned: Bool {
+    hasPendingOwner && pendingOwner == nil
+  }
 
   func attach(module: ExpoTelegramAuthModule) {
     synced { self.module = module }
@@ -37,18 +70,46 @@ final class TelegramAuthCoordinator {
       if self.module === module {
         self.module = nil
       }
+      // The promise belongs to the runtime going away with this module. The login itself is kept —
+      // its return hop may still arrive, and stashing the result is what rescues it.
+      if self.pendingOwner === module {
+        self.pendingOwner = nil
+      }
+    }
+  }
+
+  /**
+   Hands the caller a login that completed while no JS runtime was listening, clearing it so it is
+   delivered exactly once. `nil` when there is nothing to claim or the stash has aged out.
+   */
+  func claimStashedResult() -> String? {
+    synced {
+      guard let idToken = stashedIdToken, let at = stashedAt else {
+        return nil
+      }
+      stashedIdToken = nil
+      stashedAt = nil
+      return Date().timeIntervalSince(at) > Self.maxStashAge ? nil : idToken
     }
   }
 
   func login(options: LoginOptions, promise: Promise) {
     let redirectHost = URL(string: options.redirectUri)?.host
     let alreadyPending: Bool = synced {
+      // An orphaned login is not competing for anything — nobody can receive its result. Evicting it
+      // keeps one interrupted attempt from bricking Telegram login for the rest of the process.
+      if isPendingOrphaned {
+        pendingPromise = nil
+        hasPendingOwner = false
+      }
       if pendingPromise != nil {
         return true
       }
       pendingPromise = promise
       expectedHost = redirectHost
       fallbackScheme = options.fallbackScheme
+      pendingOwner = module
+      hasPendingOwner = module != nil
       return false
     }
     if alreadyPending {
@@ -122,23 +183,36 @@ final class TelegramAuthCoordinator {
   }
 
   func finish(_ result: Result<LoginData, Error>) {
-    finishPromise { promise in
-      switch result {
-      case .success(let data):
-        promise.resolve(["idToken": data.idToken])
-      case .failure(let error):
-        promise.reject(Self.errorCode(for: error), error.localizedDescription)
-      }
+    // Stashes instead of resolving when the login was orphaned mid-hop — the approval the user just
+    // gave is the one thing here worth preserving across a runtime teardown.
+    if case .success(let data) = result {
+      finishPromise(stashing: data.idToken) { $0.resolve(["idToken": data.idToken]) }
+      return
+    }
+    if case .failure(let error) = result {
+      finishPromise { $0.reject(Self.errorCode(for: error), error.localizedDescription) }
     }
   }
 
-  private func finishPromise(_ complete: (Promise) -> Void) {
+  private func finishPromise(stashing idToken: String? = nil, _ complete: (Promise) -> Void) {
     let promise: Promise? = synced {
       let current = pendingPromise
+      let wasOrphaned = isPendingOrphaned
       pendingPromise = nil
       expectedHost = nil
       fallbackScheme = nil
-      return current
+      pendingOwner = nil
+      hasPendingOwner = false
+      guard current != nil, wasOrphaned else {
+        return current
+      }
+      // Orphaned: settling is a no-op. A success is stashed; a failure is dropped, since the user
+      // either backed out or Telegram refused and resurfacing that on a later launch is noise.
+      if let idToken {
+        stashedIdToken = idToken
+        stashedAt = Date()
+      }
+      return nil
     }
     if let promise {
       complete(promise)

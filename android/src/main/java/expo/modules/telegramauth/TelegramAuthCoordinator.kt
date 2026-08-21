@@ -12,6 +12,22 @@ import org.telegram.login.TelegramLogin
  *
  * All methods are synchronized: entry points span the module queue (login/cancel), the main
  * thread (onNewIntent), and the SDK's Main-dispatcher coroutine callbacks.
+ *
+ * ## Why this outliving the JS runtime is the hard part
+ *
+ * This is an `object` — a process-scoped singleton — while the JS promise it holds belongs to one
+ * React runtime. Android routinely destroys the Activity and React host of a backgrounded app, and
+ * launching Telegram backgrounds us by design, so the runtime that started a login is frequently
+ * gone by the time the user comes back. The process, however, usually survives, and so does this.
+ *
+ * A pending login whose owning module has detached is therefore **orphaned**: its promise can never
+ * be settled, because nothing is listening. Two things follow, and both were live bugs:
+ *
+ * - Orphaned state must not block a new login. It used to, forever — every later attempt got
+ *   `ERR_CONCURRENT` for the life of the process, and the app told the user to "try again".
+ * - An orphaned login that *succeeds* must not be resolved into the void. The user approved in
+ *   Telegram; throwing that away silently is the worst outcome available. It is stashed instead
+ *   ([claimStashedResult]) so the next runtime can finish the job.
  */
 internal object TelegramAuthCoordinator {
   const val ON_RETURN_URL_RECEIVED_EVENT = "onReturnUrlReceived"
@@ -23,17 +39,46 @@ internal object TelegramAuthCoordinator {
   const val ERR_REQUEST_FAILED = "ERR_REQUEST_FAILED"
   const val ERR_CONCURRENT = "ERR_CONCURRENT"
 
+  /**
+   * How long a stashed result stays claimable. The `idToken` is short-lived and the backend
+   * validates it, so an ancient stash could only produce a confusing exchange failure on app open.
+   * Generous enough to cover a cold start on a slow device plus the user navigating back to the
+   * Telegram screen; short enough that a forgotten login does not resurface as an error later.
+   */
+  private const val MAX_STASH_AGE_MS = 10 * 60 * 1000L
+
   private class PendingLogin(
     val promise: Promise,
     val redirectHost: String?,
     val fallbackScheme: String?,
+    /**
+     * The module whose JS runtime owns [promise]. Cleared by [detach] when that runtime goes away,
+     * which is what makes this login *orphaned* — see the class docs.
+     */
+    var owner: ExpoTelegramAuthModule?,
   ) {
+    /** Whether an owner was ever recorded, so "never had one" cannot read as "lost it". */
+    private val hadOwner = owner != null
+
     /** Dedupes double delivery (launch intent + onNewIntent on singleTask relaunch). */
     var handledUrl: String? = null
+
+    /**
+     * No live JS runtime is waiting on [promise]; settling it would be a no-op.
+     *
+     * Requires [hadOwner]: treating an owner-less login as orphaned from birth would make
+     * [finishOrStash] stash a result the caller is still awaiting, hanging its promise forever.
+     * Resolving into a possibly-dead promise is the safe direction of that guess.
+     */
+    val isOrphaned: Boolean
+      get() = hadOwner && owner == null
   }
+
+  private class StashedResult(val idToken: String, val stashedAtMs: Long)
 
   private var module: ExpoTelegramAuthModule? = null
   private var pending: PendingLogin? = null
+  private var stashed: StashedResult? = null
 
   @Synchronized
   fun attach(instance: ExpoTelegramAuthModule) {
@@ -43,17 +88,36 @@ internal object TelegramAuthCoordinator {
   @Synchronized
   fun detach(instance: ExpoTelegramAuthModule) {
     if (module === instance) module = null
+    // The promise belongs to the runtime going away with this module. Keep the login itself: the
+    // return hop may still be on its way, and stashing its result is what rescues it.
+    if (pending?.owner === instance) pending?.owner = null
+  }
+
+  /**
+   * Hands the caller a login that completed while no JS runtime was listening, clearing it so it is
+   * delivered exactly once. `null` when there is nothing to claim or the stash has aged out.
+   */
+  @Synchronized
+  fun claimStashedResult(): String? {
+    val current = stashed ?: return null
+    stashed = null
+    if (System.currentTimeMillis() - current.stashedAtMs > MAX_STASH_AGE_MS) return null
+    return current.idToken
   }
 
   @Synchronized
   fun login(activity: Activity, options: LoginOptions, promise: Promise) {
+    // An orphaned login is not competing for anything — nobody can receive its result. Evicting it
+    // is what keeps a single interrupted attempt from bricking Telegram login for the whole process.
+    if (pending?.isOrphaned == true) pending = null
+
     if (pending != null) {
       promise.reject(CodedException(ERR_CONCURRENT, "Another Telegram login is already in progress.", null))
       return
     }
 
     val redirectUri = runCatching { Uri.parse(options.redirectUri) }.getOrNull()
-    pending = PendingLogin(promise, redirectUri?.host, options.fallbackScheme)
+    pending = PendingLogin(promise, redirectUri?.host, options.fallbackScheme, module)
 
     try {
       TelegramLogin.init(options.clientId, options.redirectUri, options.scopes)
@@ -113,7 +177,9 @@ internal object TelegramAuthCoordinator {
       TelegramLogin.handleLoginResponse(
         uri,
         onSuccess = { data ->
-          finish { it.resolve(mapOf("idToken" to data.idToken)) }
+          // Stashes instead of resolving when the login was orphaned mid-hop — the approval the
+          // user just gave is the one thing here worth preserving across a runtime teardown.
+          finishOrStash(data.idToken) { it.resolve(mapOf("idToken" to data.idToken)) }
         },
         onError = { loginError ->
           val message = loginError.message
@@ -133,6 +199,25 @@ internal object TelegramAuthCoordinator {
   private fun finish(complete: (Promise) -> Unit) {
     val current = pending ?: return
     pending = null
+    // Settling an orphaned promise is a no-op, so skip it. A *failed* orphaned login is dropped
+    // outright rather than stashed: the user either backed out or Telegram refused, and resurfacing
+    // that on a later launch would be noise. Clearing `pending` is the part that matters.
+    if (current.isOrphaned) return
+    complete(current.promise)
+  }
+
+  /**
+   * [finish], except an orphaned login stashes [idToken] for the next runtime to
+   * [claimStashedResult] rather than discarding it.
+   */
+  @Synchronized
+  private fun finishOrStash(idToken: String, complete: (Promise) -> Unit) {
+    val current = pending ?: return
+    pending = null
+    if (current.isOrphaned) {
+      stashed = StashedResult(idToken, System.currentTimeMillis())
+      return
+    }
     complete(current.promise)
   }
 }

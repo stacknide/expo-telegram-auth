@@ -46,5 +46,9 @@ public class ExpoTelegramAuthModule: Module {
     AsyncFunction("cancelPending") {
       TelegramAuthCoordinator.shared.cancelPending()
     }
+
+    AsyncFunction("claimStashedResult") { () -> [String: String]? in
+      TelegramAuthCoordinator.shared.claimStashedResult().map { ["idToken": $0] }
+    }
   }
 }

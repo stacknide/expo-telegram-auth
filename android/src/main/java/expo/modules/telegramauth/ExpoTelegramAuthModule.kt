@@ -63,6 +63,10 @@ class ExpoTelegramAuthModule : Module() {
     AsyncFunction("cancelPending") {
       TelegramAuthCoordinator.cancelPending()
     }
+
+    AsyncFunction("claimStashedResult") {
+      TelegramAuthCoordinator.claimStashedResult()?.let { mapOf("idToken" to it) }
+    }
   }
 
   internal fun emitReturnUrlReceived() {

@@ -59,6 +59,40 @@ export async function login(options: TelegramLoginOptions): Promise<TelegramLogi
 }
 
 /**
+ * Rejects the in-flight login with `ERR_DISMISSED` and clears native state. Resolves
+ * even when there is nothing pending.
+ *
+ * Two uses: the dismissal watcher calls it when the app returns to the foreground with
+ * no return hop, and a caller that hits `ERR_CONCURRENT` can call it to clear state
+ * stranded by an earlier attempt before retrying (see the README's `ERR_CONCURRENT` note).
+ */
+export async function cancelPendingLogin(): Promise<void> {
+	if (ExpoTelegramAuthModule == null) return
+	return ExpoTelegramAuthModule.cancelPending()
+}
+
+/**
+ * Claims a login that completed while no JS runtime was listening — resolving the
+ * `idToken` the user already approved, or `null` when there is nothing to claim.
+ *
+ * Android destroys the Activity and React host of a backgrounded app freely, and a native
+ * login is *always* backgrounded (it launches Telegram), so the runtime that called
+ * {@linkcode login} is frequently gone by the time the user approves. Its promise dies with
+ * it. Rather than discard the approval, native stashes the result; call this on mount and
+ * finish the flow exactly as if {@linkcode login} had resolved.
+ *
+ * Delivers at most once, and only within a short window (the `idToken` is short-lived).
+ * Resolves `null` on builds that predate the native stash, so it is safe to call
+ * unconditionally.
+ */
+export async function claimStashedLogin(): Promise<TelegramLoginResult | null> {
+	// Feature-detected rather than called directly: on a build without the native function,
+	// invoking it would reject, and "no stashed login" is the honest answer there.
+	if (typeof ExpoTelegramAuthModule?.claimStashedResult !== 'function') return null
+	return ExpoTelegramAuthModule.claimStashedResult()
+}
+
+/**
  * Reads the stable {@linkcode TelegramAuthErrorCode} off an error thrown by
  * {@linkcode login}, or `null` for unrelated errors.
  */
