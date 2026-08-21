@@ -22,3 +22,5 @@ project.xcworkspace
 local.properties
 .idea/
 *.tsbuildinfo
+
+.dump
