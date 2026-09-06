@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0
+## 0.3.0 — 2026-09-06
 
 ### 🐛 Bug fixes
 
@@ -14,10 +14,20 @@
   on whether a return URL was routed, which the lifecycle guarantees is already known by then. This is
   the mechanism AppAuth-Android uses.
 
+  The check is *armed* by the user actually leaving (`onUserLeaveHint` / `applicationDidEnterBackground`)
+  rather than by any resume, so a configuration change — a rotation mid-login — cannot be mistaken for
+  a dismissal.
+
 ### 💥 Breaking changes
 
+- **Requires a new native build. This release is not OTA-safe.** Dismissal detection moved from JS
+  into the native modules, so the 0.3.0 JS bundle needs the 0.3.0 native code underneath it. Ship it
+  over a 0.1.0/0.2.0 binary as a JS-only update and the JS timer is gone while the native lifecycle
+  hooks do not yet exist — a dismissed login then **never settles**, leaving the promise pending
+  forever with no error. Rebuild and resubmit; do not publish this as an `expo-updates` update alone.
 - Removed the `onReturnUrlReceived` event. It existed solely to disarm the JS grace timer and has no
-  other consumer.
+  other consumer. Nothing reachable from the package entry point referenced it — it was never
+  re-exported from `index` — so no public API changes shape; the break is the native/JS contract above.
 
 ### 🧹 Removed
 
@@ -38,6 +48,9 @@ activity finishes (was 3,000 ms): approve ✅ · back out ✅ · rotate mid-logi
 Home mid-login ✅ · immediate reconnect ✅ · **"Don't keep activities" approve ✅** · back out under DKA
 then retry ✅ · force-stop mid-login ✅ · double-tap ✅.
 
+iOS was **not** exercised on device this round; its `applicationDidBecomeActive` path mirrors the
+Android one and is reviewed, not measured.
+
 Two notes from that session, neither a defect in this module:
 
 - Declining inside Telegram surfaces as `ERR_DISMISSED`, not `ERR_CANCELLED` — see Documentation above.
@@ -45,7 +58,17 @@ Two notes from that session, neither a defect in this module:
   `login()` on `isTelegramAppInstalled()` as this README recommends. Such a caller supplies its own web
   flow instead.
 
-## 0.2.0
+### ⬆️ Upgrading
+
+**From 0.2.0** — rebuild the native app (see Breaking changes); no code changes. If you were softening
+`ERR_DISMISSED` in your UI because 0.2.0 documented it as possibly-wrong, you can drop that: it is now
+a decided outcome and safe to treat as a real cancel.
+
+**From 0.1.0** — 0.2.0 was tagged but **never published to npm**, so on the registry this release
+follows 0.1.0 directly and carries 0.2.0's changes with it. Apply 0.2.0's upgrade note as well: calling
+`claimStashedLogin()` on mount is **mandatory**, or logins approved after an Android teardown are lost.
+
+## 0.2.0 — tagged, never published to npm
 
 ### 🎉 New features
 
