@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.0
+
+### 🐛 Bug fixes
+
+- **`ERR_DISMISSED` is no longer a guess, and no longer wrong.** Dismissal was inferred in JS by
+  arming a 3-second timer on React Native's `AppState` and rejecting if no return hop landed. That
+  ran on the far side of the bridge, where Android's `onNewIntent`-before-`onResume` guarantee no
+  longer holds, so the only remedy for a slow hop was a bigger constant. In production it rejected
+  logins that were about to succeed: over one week, **122 of 432 affected installations (28%)
+  completed the exchange anyway, 64% of them within 30 seconds** — a floor, since only some successes
+  are observable. Detection now happens natively on `onResume` / `applicationDidBecomeActive`, keyed
+  on whether a return URL was routed, which the lifecycle guarantees is already known by then. This is
+  the mechanism AppAuth-Android uses.
+
+### 💥 Breaking changes
+
+- Removed the `onReturnUrlReceived` event. It existed solely to disarm the JS grace timer and has no
+  other consumer.
+
+### 🧹 Removed
+
+- `src/dismissal.ts`, `DISMISSAL_GRACE_PERIOD_MS`, and the `AppState` listener. **There is no longer a
+  tunable timing constant anywhere in this module.**
+
+### 📚 Documentation
+
+- `ERR_CANCELLED` is documented as **unreachable on the Android app-to-app path**. Declining inside
+  the Telegram app closes the sheet and sends no redirect at all — it does not even return you to the
+  calling app — so a decline surfaces as `ERR_DISMISSED`. Verified on device. It remains reachable on
+  the Custom-Tab fallback, which does perform a standard OAuth `error=access_denied` redirect.
+
+### ✅ Verified on device
+
+Xiaomi/MIUI, Android 14, Telegram installed. Dismissal now lands **110 ms** after the Telegram
+activity finishes (was 3,000 ms): approve ✅ · back out ✅ · rotate mid-login ✅ (no false dismissal) ·
+Home mid-login ✅ · immediate reconnect ✅ · **"Don't keep activities" approve ✅** · back out under DKA
+then retry ✅ · force-stop mid-login ✅ · double-tap ✅.
+
+Two notes from that session, neither a defect in this module:
+
+- Declining inside Telegram surfaces as `ERR_DISMISSED`, not `ERR_CANCELLED` — see Documentation above.
+- The SDK's own Custom-Tab fallback was **not** exercised, and is unreachable from a caller that gates
+  `login()` on `isTelegramAppInstalled()` as this README recommends. Such a caller supplies its own web
+  flow instead.
+
 ## 0.2.0
 
 ### 🎉 New features

@@ -80,8 +80,9 @@ if (TelegramAuth.isNativeLoginSupported() && (await TelegramAuth.isTelegramAppIn
     // Send idToken to YOUR backend and verify it there (see "Verifying the id_token").
   } catch (error) {
     const code = TelegramAuth.getTelegramAuthErrorCode(error)
-    if (code === 'ERR_CANCELLED') return // user denied in Telegram — they already know
-    if (code === 'ERR_DISMISSED') return // came back undecided — see the caveat below, it can be wrong
+    // Both are the user's own decision and already visible to them — silent no-ops, no toast.
+    // On Android app-to-app a decline arrives as ERR_DISMISSED, not ERR_CANCELLED (see Error codes).
+    if (code === 'ERR_CANCELLED' || code === 'ERR_DISMISSED') return
     throw error
   }
 } else {
@@ -113,8 +114,8 @@ On iOS the built-in `ASWebAuthenticationSession` fallback is fine to use.
 
 | Code | Meaning |
 | --- | --- |
-| `ERR_CANCELLED` | User denied in Telegram / cancelled the iOS auth sheet. Their own decision — silent no-op. |
-| `ERR_DISMISSED` | **Inferred, not reported by Telegram**: the app regained focus and no return hop arrived within the grace period. Also fires on a slow or unmatched return hop after a real approval, so do not treat it as certainly-a-cancel — prefer neutral copy over silence. |
+| `ERR_CANCELLED` | The user denied the request. ⚠️ **Android app-to-app never produces this** — declining inside Telegram closes the sheet without redirecting anywhere (it does not even return you to the calling app), so it arrives as `ERR_DISMISSED`. Reachable on the Custom-Tab fallback and on iOS, which do send a standard `error=access_denied` redirect. |
+| `ERR_DISMISSED` | The user returned to the app without completing the login. Not reported by Telegram, but **not a guess either** — decided by the platform lifecycle, with no grace period (see *Behaviour details* below). Safe to treat as a real cancel. |
 | `ERR_NO_AUTH_CODE` | Return URL carried no authorization code. |
 | `ERR_SERVER` | Telegram's token endpoint returned a non-200. |
 | `ERR_REQUEST_FAILED` | Network/SDK failure (message has the native detail). |
@@ -159,10 +160,15 @@ See [Telegram's docs on validating ID tokens](https://core.telegram.org/bots/tel
 
 - **One login at a time**; config (clientId/redirectUri/scopes) is passed per `login()`
   call — there is no init step.
-- **Dismissal**: the app-to-app branch is fire-and-forget; if the user backs out of
-  Telegram undecided there is no callback. The module watches for the app returning to
-  the foreground without a return URL and rejects with `ERR_DISMISSED` after a short
-  grace period.
+- **Dismissal**: the app-to-app branch is fire-and-forget — if the user backs out of Telegram
+  undecided, the SDK never calls back. The module resolves this natively off the platform lifecycle,
+  **with no timeout**: the return hop is delivered before the app finishes resuming (Android
+  guarantees `onNewIntent` precedes `onResume`; iOS delivers `open url` / `continue userActivity`
+  before the app becomes active), so on resume "a return URL was routed" is already a settled fact.
+  No URL routed ⇒ `ERR_DISMISSED`. Same mechanism as AppAuth-Android's
+  `AuthorizationManagementActivity`. A configuration change cannot be mistaken for a dismissal — the
+  check is armed by the user actually leaving (`onUserLeaveHint` / `applicationDidEnterBackground`),
+  which a rotation does not trigger.
 - **Process death**: if Android kills your app *process* while the user is in Telegram, the
   PKCE verifier dies with it — the (cold-start) return delivery is ignored safely and the
   user simply retries. Guarded: it cannot crash the app. The *other* case — process alive,

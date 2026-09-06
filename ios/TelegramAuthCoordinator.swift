@@ -24,8 +24,6 @@ import ExpoModulesCore
 final class TelegramAuthCoordinator {
   static let shared = TelegramAuthCoordinator()
 
-  static let onReturnUrlReceivedEvent = "onReturnUrlReceived"
-
   static let errCancelled = "ERR_CANCELLED"
   static let errDismissed = "ERR_DISMISSED"
   static let errNoAuthCode = "ERR_NO_AUTH_CODE"
@@ -55,6 +53,20 @@ final class TelegramAuthCoordinator {
   private var hasPendingOwner = false
   private var stashedIdToken: String?
   private var stashedAt: Date?
+  /**
+   A return-hop URL was routed for the pending login — the deterministic answer to *"did the user come
+   back with a result?"*, checked by `applicationDidBecomeActive`.
+
+   Not `pendingPromise != nil`: the token exchange that follows a return hop outlives the callback, so
+   a successful login is still pending at that moment.
+   */
+  private var handledReturnUrl = false
+  /**
+   The user actually left the app for the login. Required because becoming active also happens for
+   resumes that are not returns from Telegram (control centre, a system alert), which would otherwise
+   read as a dismissal.
+   */
+  private var leftForAuth = false
 
   /// No live JS runtime is waiting on `pendingPromise`; settling it would be a no-op.
   private var isPendingOrphaned: Bool {
@@ -110,6 +122,8 @@ final class TelegramAuthCoordinator {
       fallbackScheme = options.fallbackScheme
       pendingOwner = module
       hasPendingOwner = module != nil
+      handledReturnUrl = false
+      leftForAuth = false
       return false
     }
     if alreadyPending {
@@ -134,10 +148,35 @@ final class TelegramAuthCoordinator {
     }
   }
 
+  /// The user left the app for Telegram. Arms `applicationDidBecomeActive`.
+  func applicationDidEnterBackground() {
+    synced { if pendingPromise != nil { leftForAuth = true } }
+  }
+
   /**
-   Rejects the pending login as user-dismissed. Called from JS when the app returns to
-   the foreground without a return-hop URL (the app-to-app branch has no signal for
-   "backed out of Telegram undecided").
+   The app is foreground again. If the user left for the login and no return hop was routed, they came
+   back without completing it — reject as dismissed.
+
+   **Decided, not guessed.** The return hop reaches `handleIfMatches` through the app-delegate
+   subscriber (`open url` / `continue userActivity`), which UIKit delivers *before* the app finishes
+   becoming active, so `handledReturnUrl` is already set for any login that produced a result.
+
+   This replaces a 3-second JS grace timer that inferred the same thing from React Native's
+   `AppState`, and was wrong for at least 28% of the logins it rejected. The Android side does the
+   same thing on `onResume`; the mechanism is AppAuth's.
+
+   Note the iOS ASWebAuthenticationSession fallback never backgrounds the app, so `leftForAuth` stays
+   false there and this correctly stands aside — that branch has the SDK's own `.cancelled`.
+   */
+  func applicationDidBecomeActive() {
+    let shouldDismiss: Bool = synced { leftForAuth && !handledReturnUrl && pendingPromise != nil }
+    guard shouldDismiss else { return }
+    finishPromise { $0.reject(Self.errDismissed, "Returned to the app without completing the Telegram login.") }
+  }
+
+  /**
+   Rejects the pending login as user-dismissed. Kept for the caller that hits `ERR_CONCURRENT` and
+   needs to clear state stranded by an earlier attempt; dismissal itself is now detected natively.
    */
   func cancelPending() {
     finishPromise { $0.reject(Self.errDismissed, "Telegram login was dismissed by the user.") }
@@ -162,8 +201,7 @@ final class TelegramAuthCoordinator {
       return false
     }
 
-    // Lets JS cancel its dismissal grace timer before the (slow) token exchange starts.
-    synced { module }?.sendEvent(Self.onReturnUrlReceivedEvent, [:])
+    synced { handledReturnUrl = true }
 
     // Stable codes for Telegram's OAuth error params — the SDK ignores `error` and would
     // misreport a user denial as "no authorization code".
@@ -203,6 +241,8 @@ final class TelegramAuthCoordinator {
       fallbackScheme = nil
       pendingOwner = nil
       hasPendingOwner = false
+      handledReturnUrl = false
+      leftForAuth = false
       guard current != nil, wasOrphaned else {
         return current
       }

@@ -31,7 +31,13 @@ export type TelegramLoginResult = {
 export type TelegramAuthErrorCode =
 	/** The user denied the request (or cancelled the iOS web-auth sheet). Treat as a silent no-op. */
 	| 'ERR_CANCELLED'
-	/** The user left for Telegram but came back without deciding — no return hop ever arrived. Treat as a silent no-op. */
+	/**
+	 * The user returned to the app without completing the login — no return hop ever arrived.
+	 *
+	 * Decided by the platform lifecycle (Android `onResume` after `onNewIntent`, iOS
+	 * `applicationDidBecomeActive`), so it is a fact rather than a guess: there is no grace period and
+	 * no race with the JS bridge. Treat as a silent no-op.
+	 */
 	| 'ERR_DISMISSED'
 	/** The return URL carried no authorization code. */
 	| 'ERR_NO_AUTH_CODE'

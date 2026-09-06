@@ -1,16 +1,7 @@
 import { type NativeModule, requireOptionalNativeModule } from 'expo'
 import type { TelegramLoginResult } from './ExpoTelegramAuth.types'
 
-export type ExpoTelegramAuthEvents = {
-	/**
-	 * Fired the moment a matching return-hop URL reaches the app, before the token
-	 * exchange starts — cancels the dismissal grace timer (the exchange can take
-	 * longer than any sensible grace period).
-	 */
-	onReturnUrlReceived: () => void
-}
-
-export declare class ExpoTelegramAuthNativeModule extends NativeModule<ExpoTelegramAuthEvents> {
+export declare class ExpoTelegramAuthNativeModule extends NativeModule {
 	isTelegramAppInstalled(): Promise<boolean>
 	login(options: {
 		clientId: string

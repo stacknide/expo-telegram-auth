@@ -30,8 +30,6 @@ import org.telegram.login.TelegramLogin
  *   ([claimStashedResult]) so the next runtime can finish the job.
  */
 internal object TelegramAuthCoordinator {
-  const val ON_RETURN_URL_RECEIVED_EVENT = "onReturnUrlReceived"
-
   const val ERR_CANCELLED = "ERR_CANCELLED"
   const val ERR_DISMISSED = "ERR_DISMISSED"
   const val ERR_NO_AUTH_CODE = "ERR_NO_AUTH_CODE"
@@ -60,8 +58,23 @@ internal object TelegramAuthCoordinator {
     /** Whether an owner was ever recorded, so "never had one" cannot read as "lost it". */
     private val hadOwner = owner != null
 
-    /** Dedupes double delivery (launch intent + onNewIntent on singleTask relaunch). */
+    /**
+     * Dedupes double delivery (launch intent + onNewIntent on singleTask relaunch), and — because
+     * Android guarantees `onNewIntent` runs **before** `onResume` — doubles as the deterministic
+     * answer to *"did the user come back with a result, or empty-handed?"*. See [onActivityResumed].
+     */
     var handledUrl: String? = null
+
+    /**
+     * The user actually left this Activity for the login (Telegram, or the SDK's Custom Tab).
+     *
+     * Required because `onResume` also fires for resumes that are not returns from Telegram — a
+     * configuration change being the dangerous one, since it would otherwise read as a dismissal and
+     * kill a login the user never left. `onUserLeaveHint` is the exact signal: the framework raises
+     * it for a user-initiated departure (including our own `startActivity`) and **not** for a
+     * rotation or a system-initiated interruption.
+     */
+    var leftForAuth = false
 
     /**
      * No live JS runtime is waiting on [promise]; settling it would be a no-op.
@@ -130,9 +143,46 @@ internal object TelegramAuthCoordinator {
     }
   }
 
+  /** The user left for Telegram (or the SDK's Custom Tab). Arms [onActivityResumed]. */
+  @Synchronized
+  fun onUserLeftForAuth() {
+    pending?.leftForAuth = true
+  }
+
   /**
-   * Rejects the pending login as user-dismissed. Called from JS when the app returns to the
-   * foreground without a return-hop intent (the SDK has no signal for "backed out of Telegram").
+   * The Activity is back in the foreground. If the user left for the login and no return hop was
+   * routed, they came back without completing it — reject as dismissed.
+   *
+   * **This is decided, not guessed.** Android guarantees `onNewIntent` is delivered before
+   * `onResume` ("An activity will always be paused before receiving a new intent, so you can count
+   * on onResume() being called after this method"), so by the time this runs, [PendingLogin.handledUrl]
+   * is already set for every login that produced a result. Expo's own wrapper widens the margin
+   * further: it forwards `onNewIntent` synchronously and defers `onResume` onto a coroutine.
+   *
+   * This replaces a 3-second JS grace timer that guessed at the same question from `AppState`, on the
+   * far side of the bridge where the ordering guarantee no longer holds. It was wrong for **at least
+   * 28% of the logins it rejected** — measured over a week, 122 of 432 affected installations
+   * completed the exchange anyway, 64% of them within 30 seconds. This is the same mechanism
+   * AppAuth-Android uses (`AuthorizationManagementActivity.onResume` → response URI present?
+   * complete : cancel), and like AppAuth it needs no timeout.
+   *
+   * ⚠️ [PendingLogin.handledUrl] is the discriminator, **not** `pending != null`. The token exchange
+   * that follows a return hop is a network call that outlives this callback, so a successful login is
+   * still pending here — keying off that would kill every login it was meant to protect.
+   */
+  @Synchronized
+  fun onActivityResumed() {
+    val current = pending ?: return
+    if (!current.leftForAuth || current.handledUrl != null) return
+    finish {
+      it.reject(CodedException(ERR_DISMISSED, "Returned to the app without completing the Telegram login.", null))
+    }
+  }
+
+  /**
+   * Rejects the pending login as user-dismissed. Kept for the caller that hits [ERR_CONCURRENT] and
+   * needs to clear state stranded by an earlier attempt; dismissal itself is now detected natively by
+   * [onActivityResumed] and needs no JS involvement.
    */
   @Synchronized
   fun cancelPending() {
@@ -155,9 +205,6 @@ internal object TelegramAuthCoordinator {
     val key = uri.toString()
     if (current.handledUrl == key) return true
     current.handledUrl = key
-
-    // Lets JS cancel its dismissal grace timer before the (slow) token exchange starts.
-    module?.emitReturnUrlReceived()
 
     // Map Telegram's OAuth error params ourselves for stable error codes — the SDK
     // collapses them into a bare message string.

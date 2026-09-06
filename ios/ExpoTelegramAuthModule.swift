@@ -18,8 +18,6 @@ public class ExpoTelegramAuthModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ExpoTelegramAuth")
 
-    Events(TelegramAuthCoordinator.onReturnUrlReceivedEvent)
-
     OnCreate {
       TelegramAuthCoordinator.shared.attach(module: self)
     }

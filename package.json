@@ -1,6 +1,6 @@
 {
 	"name": "expo-telegram-auth",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Native Telegram Login for Expo apps — wraps Telegram's official Android and iOS Login SDKs for a browser-free, app-to-app OAuth flow that returns an OIDC id_token",
 	"main": "build/index.js",
 	"types": "build/index.d.ts",

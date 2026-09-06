@@ -29,4 +29,12 @@ public class ExpoTelegramAuthAppDelegateSubscriber: ExpoAppDelegateSubscriber {
     }
     return TelegramAuthCoordinator.shared.handleIfMatches(url)
   }
+
+  public func applicationDidEnterBackground(_ application: UIApplication) {
+    TelegramAuthCoordinator.shared.applicationDidEnterBackground()
+  }
+
+  public func applicationDidBecomeActive(_ application: UIApplication) {
+    TelegramAuthCoordinator.shared.applicationDidBecomeActive()
+  }
 }

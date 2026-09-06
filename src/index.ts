@@ -1,4 +1,3 @@
-import { watchForDismissal } from './dismissal'
 import type {
 	TelegramAuthErrorCode,
 	TelegramLoginOptions,
@@ -41,6 +40,11 @@ export async function isTelegramAppInstalled(): Promise<boolean> {
  * stable {@linkcode TelegramAuthErrorCode} in `error.code` — treat `ERR_CANCELLED`
  * and `ERR_DISMISSED` as silent no-ops.
  *
+ * **Settles exactly once, on its own.** Every outcome — approval, denial, or returning to the app
+ * without deciding — is resolved by the native side off the platform's own lifecycle, with no
+ * timeout anywhere. The caller starts a login and awaits the answer; there is nothing to arm, poll
+ * or cancel.
+ *
  * Config is per-call; there is no init step. Only one login may be in flight at a
  * time (`ERR_CONCURRENT`).
  */
@@ -54,7 +58,6 @@ export async function login(options: TelegramLoginOptions): Promise<TelegramLogi
 		redirectUri: options.redirectUri,
 		scopes: normalizeScopes(options.scopes),
 	})
-	watchForDismissal(ExpoTelegramAuthModule, loginPromise)
 	return loginPromise
 }
 
@@ -62,9 +65,9 @@ export async function login(options: TelegramLoginOptions): Promise<TelegramLogi
  * Rejects the in-flight login with `ERR_DISMISSED` and clears native state. Resolves
  * even when there is nothing pending.
  *
- * Two uses: the dismissal watcher calls it when the app returns to the foreground with
- * no return hop, and a caller that hits `ERR_CONCURRENT` can call it to clear state
- * stranded by an earlier attempt before retrying (see the README's `ERR_CONCURRENT` note).
+ * Rarely needed: dismissal is detected natively, so the remaining use is a caller that hits
+ * `ERR_CONCURRENT` and wants to clear state stranded by an earlier attempt before retrying
+ * (see the README's `ERR_CONCURRENT` note).
  */
 export async function cancelPendingLogin(): Promise<void> {
 	if (ExpoTelegramAuthModule == null) return

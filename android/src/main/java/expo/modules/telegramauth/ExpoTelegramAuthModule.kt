@@ -27,8 +27,6 @@ class ExpoTelegramAuthModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ExpoTelegramAuth")
 
-    Events(TelegramAuthCoordinator.ON_RETURN_URL_RECEIVED_EVENT)
-
     OnCreate {
       TelegramAuthCoordinator.attach(this@ExpoTelegramAuthModule)
     }
@@ -67,9 +65,5 @@ class ExpoTelegramAuthModule : Module() {
     AsyncFunction("claimStashedResult") {
       TelegramAuthCoordinator.claimStashedResult()?.let { mapOf("idToken" to it) }
     }
-  }
-
-  internal fun emitReturnUrlReceived() {
-    sendEvent(TelegramAuthCoordinator.ON_RETURN_URL_RECEIVED_EVENT, emptyMap<String, Any>())
   }
 }

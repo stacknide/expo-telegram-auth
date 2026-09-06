@@ -24,4 +24,17 @@ class TelegramAuthLifecycleListener : ReactActivityLifecycleListener {
     val uri = intent.data ?: return false
     return TelegramAuthCoordinator.handleReturnUrl(uri)
   }
+
+  /** The user left for Telegram (or the SDK's Custom Tab) — not a rotation, not an incoming call. */
+  override fun onUserLeaveHint(activity: Activity) {
+    TelegramAuthCoordinator.onUserLeftForAuth()
+  }
+
+  /**
+   * Back in the foreground. Runs after [onNewIntent] by Android's own guarantee, so the coordinator
+   * can tell a completed login from an abandoned one without waiting on anything.
+   */
+  override fun onResume(activity: Activity) {
+    TelegramAuthCoordinator.onActivityResumed()
+  }
 }
